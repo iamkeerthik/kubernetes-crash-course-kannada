@@ -789,8 +789,434 @@ kubectl create clusterrolebinding cluster-read-pods \
   --user=jane
 ```
 
+## 11. NetworkPolicy
+•	A NetworkPolicy controls network traffic to/from pods.
+•	It acts like a firewall at the pod level.
+•	By default, in Kubernetes:
+•	Pods can talk to each other freely (no restrictions).
+•	NetworkPolicy is opt-in; it only restricts traffic if applied.
 
 
+•	Frontend: allow port 80 from anywhere
+•	Backend: allow port 80 only from frontend
+1️⃣ Frontend Deployment
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  labels:
+    role: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      role: frontend
+  template:
+    metadata:
+      labels:
+        role: frontend
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+```
+2️⃣ Backend Deployment
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  labels:
+    role: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      role: backend
+  template:
+    metadata:
+      labels:
+        role: backend
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+```
+
+Expose Both deployment with ClusterIP
+```bash
+kubectl expose deploy frontend --port=80 --target-port=80 --name=frontend
+kubectl expose deploy backend --port=80 --target-port=80 --name=backend
+```
+
+3️⃣ NetworkPolicy for Frontend (allow 80 from everywhere)
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-allow-80
+spec:
+  podSelector:
+    matchLabels:
+      role: frontend
+  policyTypes:
+  - Ingress
+  ingress:
+  - ports:
+    - protocol: TCP
+      port: 80
+```
+
+•	Allows port 80 from any pod or IP to frontend.
+•	All other ports are blocked.
+
+	
+4️⃣ NetworkPolicy for Backend (allow 80 only from frontend)
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-allow-from-frontend
+spec:
+  podSelector:
+    matchLabels:
+      role: backend
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          role: frontend
+    ports:
+    - protocol: TCP
+      port: 80
+```
+
+•	Only pods labeled role=frontend can access backend on port 80.
+•	All other traffic is blocked.
+
+
+5️⃣ Temp pod to test (imperative)
+```bash
+# Test access to frontend port 80 (should succeed)
+kubectl run temp-frontend --rm -it --image=curlimages/curl:latest --restart=Never --command -- curl http://frontend.default.svc.cluster.local:80
+
+# Test access to backend port 80 (should fail)
+kubectl run temp-backend --rm -it --image=curlimages/curl:latest --restart=Never --command -- curl http://backend.default.svc.cluster.local:80
+
+#Test access from frontend pod to backend pod (should succeed)
+kubectl exec -it <frontend-pod> -- curl http://backend.default.svc.cluster.local:80
+
+#Test access to backend port 80 with labelled pod ( Bypass)
+kubectl run temp-backend --rm -it --image=curlimages/curl:latest --labels=role=frontend --restart=Never --command -- curl http://backend.default.svc.cluster.local:80
+```
+
+
+## 12. Taints and Tolerations
+
+1️⃣ Node Selector in Deployment
+```bash
+kubectl label nodes <node-name> role=special
+```
+•	Node selectors let you choose a node based on labels.
+•	Example: if a node has label role=special, you can schedule pods only there.
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: special-deployment
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: special
+  template:
+    metadata:
+      labels:
+        app: special
+    spec:
+      containers:
+      - name: nginx
+        image: nginx
+      nodeSelector:
+        role: special
+```
+
+2️⃣ Taint + Toleration in Deployment
+
+	
+•	Taints are applied to nodes. They mark a node so that pods won’t schedule on it unless they tolerate the taint.
+•	Tolerations are applied to pods. They allow a pod to be scheduled on nodes with matching taints.
+
+Think of it as:
+
+Taint = “Do not disturb unless you tolerate me”
+Toleration = “I can tolerate that disturbance”
+
+2️⃣ Example Scenario
+	•	You have a node that should only run special workloads, e.g., GPU jobs or high-memory pods.
+	•	You taint the node so normal pods don’t schedule there.
+	•	Special pods add a toleration to allow scheduling.
+
+Taint a node
+```bash
+kubectl taint nodes <node-name> special=true:NoSchedule
+```
+•	If the node is tainted, you must add a toleration in the pod spec.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tainted-deployment
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: tainted
+  template:
+    metadata:
+      labels:
+        app: tainted
+    spec:
+      containers:
+      - name: nginx
+        image: nginx
+      nodeSelector:
+        role: special
+      tolerations:
+      - key: "special"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+```
+
+1️⃣ Taint Effects
+NoSchedule
+Pods without matching toleration cannot be scheduled on this node. They remain Pending.
+
+PreferNoSchedule
+Kubernetes tries to avoid scheduling pods without matching toleration on this node, but doesn’t strictly block them. It’s a “soft” taint.
+
+NoExecute
+Pods without matching toleration are evicted if already running, and new pods cannot schedule.
+
+
+1️⃣ Check taints on a node
+```bash
+kubectl describe node <node-name> | grep -i taint -B 10 -A 10
+```
+
+2️⃣ Remove (untaint) a node
+```bash
+kubectl taint nodes <node-name> <key>-
+Example:
+kubectl taint nodes gke-cluster-1-default-pool-4e1aff24-1zxg special-
+```
+
+## 13. HPA
+Horizontal Pod Autoscaler (HPA) automatically scales the number of pod replicas in a Deployment, ReplicaSet, or StatefulSet based on CPU/memory utilization or custom metrics.
+
+It ensures your app scales out when load increases and in when load drops — all automatically.
+
+🧠 How it works
+	•	The metrics-server collects resource metrics (like CPU/memory) from kubelets.
+	•	The HPA controller monitors these metrics.
+	•	If actual usage exceeds the target threshold, it increases replicas.
+	•	If usage falls below the target, it reduces replicas.
+
+⚙️ Pre-requisite
+
+You must have metrics-server installed:
+```bash
+kubectl get deployment metrics-server -n kube-system
+```
+
+If not installed:
+```bash
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+```
+
+
+🧩 Example Deployment
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deploy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx
+        resources:
+          requests:
+            cpu: 100m
+          limits:
+            cpu: 200m
+```
+
+⚙️ Create HPA (Declarative)
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: nginx-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: nginx-deploy
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 50
+```
+
+👉 This means:
+	•	HPA will keep CPU usage around 50% of the requested 100m.
+	•	If usage rises above that → new pods are created (up to 5).
+	•	If usage drops → pods are removed (down to 1).
+
+
+⚡ Imperative Way
+```bash
+kubectl autoscale deployment nginx-deploy --cpu-percent=50 --min=1 --max=5
+```
+
+## 14. Deployment with Requests + Limits
+In Kubernetes, HPA relies on the requests, but you should always specify both requests and limits in your deployment for better control.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deploy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+```
+
+📊 2. Check Node Usage (used vs available)
+
+```bash
+kubectl top nodes
+```
+📦 3. Check Pod Usage
+```bash
+kubectl top pods -A
+```
+
+## 15. Probes
+
+1. Liveness Probe
+	•	periodSeconds: How often Kubernetes checks the container’s health.
+	•	Example: periodSeconds: 5 → check every 5 seconds.
+	•	failureThreshold: How many consecutive failures before Kubernetes considers the pod unhealthy and restarts it.
+	•	Example: failureThreshold: 3 + periodSeconds: 5 → pod restarts after 15 seconds of continuous failure.
+
+2. Readiness Probe
+	•	periodSeconds: How often Kubernetes checks if the pod is ready to receive traffic.
+	•	failureThreshold: Number of consecutive failures before the pod is removed from Service endpoints.
+	•	Behavior: Pod is not restarted; it only stops receiving traffic.
+
+4. Startup Probe
+	•	periodSeconds: Interval between checks during container startup.
+	•	failureThreshold: Number of failures before the pod is killed and restarted.
+	•	Behavior: Only runs at startup. Once it succeeds, liveness probe takes over.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-probes
+spec:
+  replicas: 1  # Single pod for demo
+  selector:
+    matchLabels:
+      app: nginx
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0          # No extra pod above desired replicas
+      maxUnavailable: 1    # Must be >=1 when maxSurge=0; ensures old pod is replaced immediately
+      # Note: This strategy is ONLY for probe testing/demo purposes
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx
+        ports:
+        - containerPort: 80
+        # ------------------------------
+        # Startup Probe (demo purpose)
+        # ------------------------------
+        startupProbe:
+          httpGet:
+            path: /wrongpath   # Intentionally wrong path to demonstrate failure
+            port: 80
+          failureThreshold: 10
+          periodSeconds: 5
+        # ------------------------------
+        # Liveness Probe (demo purpose)
+        # ------------------------------
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        # ------------------------------
+        # Readiness Probe (demo purpose)
+        # ------------------------------
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 3
+
+```
 
 
 
