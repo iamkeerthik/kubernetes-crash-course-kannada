@@ -245,6 +245,120 @@ spec:
 
 Purpose: Expose pods inside/outside the cluster.
 
+###ClusterIP
+```bash
+kubectl expose deploy nginx --port=80 --target-port=80 --type=ClusterIP --name nginx-clusterip
+```
+```yaml
+# ClusterIP Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-clusterip
+spec:
+  selector:
+    app: nginx
+  ports:
+    - port: 80
+      targetPort: 80
+  type: ClusterIP
+```
+###NodePort
+```bash
+kubectl expose deploy nginx --port=80 --target-port=80 --type=NodePort --name nginx-np
+kubectl edit svc nginx-np
+```
+```yaml
+# NodePort Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-nodeport
+spec:
+  selector:
+    app: nginx
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30080
+  type: NodePort
+```
+###Load Balancer
+```bash
+kubectl expose deploy nginx --port=80 --target-port=80 --type=LoadBalancer --name nginx-lb
+```
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-loadbalancer
+  labels:
+    app: nginx
+spec:
+  type: LoadBalancer
+  selector:
+    app: nginx
+  ports:
+    - protocol: TCP
+      port: 80          # Port exposed externally
+      targetPort: 80    # Port on the Pod
+```
+###Ingress
+To expose multipath path (path based routing) on Loadbalacer
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-wildcard-host
+spec:
+  rules:
+  - host: "foo.bar.com"
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/bar"
+        backend:
+          service:
+            name: service1
+            port:
+              number: 80
+  - host: "*.foo.com"
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/foo"
+        backend:
+          service:
+            name: service2
+            port:
+              number: 80
+```
+
+ ## 9.Volumes
+ ```bash
+kubectl get storageclass
+```
+  How dynamic provisioning works in GKE
+  
+```bash
+  nano pvc.yaml
+```
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nginx-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard
+```
+
+###Reuse an existing GCP Persistent Disk by creating a manual PV, then a PVC that claims it
 
 
 
