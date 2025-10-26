@@ -4,6 +4,9 @@ All Kubernetes YAML manifests and examples used in the **Kubernetes Crash Course
 
 🎥 **Watch the full video:** [YouTube Link](https://youtu.be/FpeYDZzWPaI)
 
+K8s Document: https://kubernetes.io/docs/home/
+Medium : https://medium.com/@iamkeerthik
+
 ---
 
 ## 🗂️ Index
