@@ -95,6 +95,20 @@ kind: Namespace
 metadata:
   name: dev
 ```
+ The -A or --all-namespaces flag lets you list resources across all namespaces.
+
+ List all pods in all namespaces:
+ ```bash
+kubectl get pods -A
+```
+List all deployments in all namespaces:
+```bash
+kubectl get deployments --all-namespaces
+```
+get a cluster-wide overview of almost everything running.
+```bash
+kubectl get all -A
+```
 
 ## 4. Deployment & Rollout
 
