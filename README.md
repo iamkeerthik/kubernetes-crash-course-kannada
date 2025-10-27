@@ -718,6 +718,46 @@ kubectl auth can-i list deployments --as=jane
 kubectl auth can-i list pods -n kube-system --as=jane
 ```
 
+🧩 API Groups in Kubernetes
+
+Every Kubernetes resource belongs to an API group — which helps version and organize them.
+You can see all available API groups with:
+
+```bash
+kubectl api-resources
+```
+Example output:
+```bash
+NAME               APIGROUP                       NAMESPACED   KIND
+pods                                               true         Pod
+deployments        apps                           true         Deployment
+roles              rbac.authorization.k8s.io      true         Role
+clusterroles       rbac.authorization.k8s.io      false        ClusterRole
+```
+🔹 Core (legacy) API Group:
+Some basic resources (like pods, services, configmaps, nodes) belong to the core API group, which doesn’t have a name.
+That’s why when defining permissions in RBAC, you must leave the apiGroups field as empty quotes ("").
+
+Example — giving a user permission to list Pods:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-reader
+  namespace: default
+rules:
+- apiGroups: [""]     # 👈 Core API group (empty string)
+  resources: ["pods"]
+  verbs: ["get", "list"]
+```
+Example — for deployments (which belong to apps group):
+```yaml
+rules:
+- apiGroups: ["apps"]  # 👈 apps group
+  resources: ["deployments"]
+  verbs: ["get", "list"]
+```
 
 2️⃣ Steps to Map KSA to GSA
 
